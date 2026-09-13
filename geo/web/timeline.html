@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline &middot; geo</title>
+<meta name="description" content="Sentinel-1 and Sentinel-2 change detection over any area of Earth.">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+<nav class="nav" aria-label="Primary">
+  <a class="nav__brand" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg><span>geo</span></a>
+  <div class="nav__links">
+    <a class="nav__link" href="index.html" data-page="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Ask</span></a>
+    <a class="nav__link" href="explore.html" data-page="explore.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 4-6 2v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Explore</span></a>
+    <a class="nav__link" href="results.html" data-page="results.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span>Results</span></a>
+    <a class="nav__link" href="compare.html" data-page="compare.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/></svg><span>Compare</span></a>
+    <a class="nav__link" href="timeline.html" data-page="timeline.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Timeline</span></a>
+    <a class="nav__link" href="report.html" data-page="report.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg><span>Report</span></a>
+    <a class="nav__link" href="drone.html" data-page="drone.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 9 5 5M15 9l4-4M9 15l-4 4M15 15l4 4"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg><span>Drone</span></a>
+    <a class="nav__link" href="about.html" data-page="about.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>About</span></a>
+  </div>
+  <div class="nav__job" id="navjob" aria-live="polite"></div>
+</nav>
+
+<main class="container">
+  <h1>Timeline</h1>
+  <p style="color:var(--color-muted-foreground);max-width:74ch">
+    One column per time window. Optical and radar are acquired on different days, so each
+    scene is keyed to the window it came from &mdash; that is what makes the rows line up.
+  </p>
+  <div id="body"><div class="card skeleton">Loading run...</div></div>
+</main>
+
+
+</div>
+<script src="shared.js"></script>
+<script>
+(async () => {
+  const host = $("body"), id = currentJob();
+  if (!id) { needRun(host, "The observation timeline"); return; }
+  let d;
+  try { d = await loadResult(id); }
+  catch (e) { host.innerHTML = '<div class="err">' + esc(e.message) + "</div>"; return; }
+  if (d.status !== "done") {
+    host.innerHTML = '<div class="card"><p>This run is <b>' + esc(d.status) + "</b>.</p></div>";
+    return;
+  }
+
+  const r = d.result, p = r.properties;
+  const tl = (p.timeline || []).filter((t) => t.id && t.step !== undefined);
+  if (tl.length < 2) {
+    host.innerHTML = '<div class="card"><p>This run used a single pair of dates, so there ' +
+      'is no timeline to step through. Run a series from <a href="' +
+      linkWithJob("explore.html") + '">Explore</a>.</p></div>';
+    return;
+  }
+
+  const bbox = p.bbox;
+  const steps = [];
+  tl.forEach((t) => { if (steps.indexOf(t.step) === -1) steps.push(t.step); });
+  steps.sort((a, b) => a - b);
+
+  const table = [["S2", "Sentinel-2"], ["S1", "Sentinel-1"]].map((row) => {
+    const sensor = row[0], label = row[1];
+    const cells = steps.map((step) => {
+      const stop = tl.find((t) => t.step === step && t.sensor === sensor);
+      if (!stop) {
+        return '<td><div class="chip chip--empty"><div class="chip__img"></div>' +
+          '<div class="help">no scene</div></div></td>';
+      }
+      const detail = stop.cloud_cover !== undefined
+        ? stop.cloud_cover + "% cloud" : "orbit " + stop.relative_orbit;
+      const url = "/api/chip?bbox=" + bbox.join(",") + "&scene_id=" +
+        encodeURIComponent(stop.id) + "&sensor=" + sensor.toLowerCase() + "&px=128";
+      return '<td><button class="chip" data-id="' + esc(stop.id) + '" data-sensor="' + sensor +
+        '" data-date="' + stop.date + '" data-detail="' + detail +
+        '" aria-label="View ' + sensor + " " + stop.date + ", " + detail + '">' +
+        '<img class="chip__img" loading="lazy" src="' + url + '" alt="">' +
+        '<div class="chip__date mono">' + stop.date + "</div>" +
+        '<div class="help">' + detail + "</div></button></td>";
+    }).join("");
+    return '<tr><th scope="row">' + label + "</th>" + cells + "</tr>";
+  }).join("");
+
+  host.innerHTML =
+    '<section class="card">' +
+      '<div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">' +
+      '<p class="card__title" style="margin:0;flex:1" id="tlTitle">' + steps.length +
+      ' time windows</p><button class="btn btn--ghost btn--auto" id="all">Show all dates</button></div>' +
+      // The enlarged scene sits above the strip so it is visible the moment it
+      // is opened, rather than below the fold.
+      '<div class="preview" id="preview" hidden>' +
+        '<div class="preview__head"><h2 id="pvTitle"></h2>' +
+        '<span class="help" id="pvMeta"></span>' +
+        '<span style="flex:1"></span>' +
+        '<a class="btn btn--auto" id="pvOpen" target="_blank" rel="noopener">Open image</a></div>' +
+        '<div class="preview__figure">' +
+          '<div class="preview__loading" id="pvLoading">Loading full resolution...</div>' +
+          '<img class="preview__img" id="pvImg" alt=""></div>' +
+      "</div>" +
+      '<div class="scroll-x"><table class="chips">' + table + "</table></div>" +
+      '<p class="help" id="tlNote">Select a scene to enlarge it and see the change detected up to that date.</p>' +
+    "</section>" +
+    '<section class="card"><p class="card__title">Detections up to the selected date</p>' +
+    '<div id="list" class="scroll-x"></div></section>';
+
+  const feats = r.features;
+  function show(dateStr, label) {
+    const keep = dateStr
+      ? feats.filter((f) => !f.properties.change_date || f.properties.change_date <= dateStr)
+      : feats;
+    $("tlNote").textContent = dateStr
+      ? keep.length + " of " + feats.length + " detections by " + dateStr
+      : "all " + feats.length + " detections";
+    $("tlTitle").textContent = label || steps.length + " time windows";
+
+    const byType = {};
+    keep.forEach((f) => {
+      const t = f.properties.change_type || "other";
+      if (!byType[t]) byType[t] = { n: 0, ha: 0, label: f.properties.change_label || t };
+      byType[t].n += 1;
+      byType[t].ha += f.properties.area_ha || 0;
+    });
+    const rowsHtml = Object.keys(byType)
+      .sort((a, b) => byType[b].ha - byType[a].ha)
+      .map((t) => '<tr><td><span class="swatch" style="background:' +
+        (CLASS_COLOURS[t] || CLASS_COLOURS.other) + '"></span>' + esc(byType[t].label) +
+        '</td><td class="num">' + byType[t].n + '</td><td class="num">' +
+        fmtHa(byType[t].ha) + " ha</td></tr>").join("");
+    $("list").innerHTML = rowsHtml
+      ? '<table><thead><tr><th>Type</th><th class="num">Regions</th><th class="num">Area</th></tr></thead><tbody>' +
+        rowsHtml + "</tbody></table>"
+      : '<p class="help">Nothing had been detected by this date.</p>';
+  }
+
+  // Selecting a scene does two things at once: it enlarges that scene in
+  // place, and filters the detections to what had appeared by its date.
+  let selected = null;
+
+  /** Run a layout change without the strip moving under the pointer.
+   *  Inserting a tall element above the chips would otherwise push the one
+   *  just clicked off-screen. */
+  function keepStripStill(mutate) {
+    const strip = document.querySelector(".chips");
+    const before = strip ? strip.getBoundingClientRect().top : 0;
+    mutate();
+    if (!strip) return;
+    const after = strip.getBoundingClientRect().top;
+    // Two-argument form: the options object with behavior:"instant" is
+    // rejected by some engines, and an invalid value makes the whole call a
+    // no-op rather than scrolling instantly.
+    window.scrollBy(0, after - before);
+  }
+
+  function collapse() {
+    selected = null;
+    keepStripStill(() => { $("preview").hidden = true; });
+    $("pvImg").removeAttribute("src");
+    document.querySelectorAll(".chip").forEach((x) => {
+      x.classList.remove("chip--on");
+      x.setAttribute("aria-expanded", "false");
+    });
+    show(null, null);
+  }
+
+  function expand(cell) {
+    const sensor = cell.dataset.sensor, date = cell.dataset.date;
+    selected = cell;
+    document.querySelectorAll(".chip").forEach((x) => {
+      const on = x === cell;
+      x.classList.toggle("chip--on", on);
+      x.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+
+    const full = "/api/chip?bbox=" + bbox.join(",") + "&scene_id=" +
+      encodeURIComponent(cell.dataset.id) + "&sensor=" + sensor.toLowerCase() + "&px=1024";
+    $("pvTitle").textContent = (sensor === "S2" ? "Sentinel-2" : "Sentinel-1") + " " + date;
+    $("pvMeta").textContent = cell.dataset.detail + " · " + cell.dataset.id;
+    $("pvOpen").href = full;
+
+    const img = $("pvImg");
+    img.alt = sensor + " scene of the area of interest, " + date;
+    // Reserve the box and show progress: a cold full-resolution render is a
+    // real wait, not an instant swap, and the page must not jump when it lands.
+    img.removeAttribute("src");
+    $("pvLoading").hidden = false;
+    $("pvLoading").textContent = "Loading full resolution...";
+    img.onload = () => { $("pvLoading").hidden = true; };
+    img.onerror = () => { $("pvLoading").textContent = "That scene could not be rendered."; };
+    img.src = full;
+
+    keepStripStill(() => { $("preview").hidden = false; });
+    show(date, sensor + " " + date);
+  }
+
+  document.querySelectorAll(".chip[data-id]").forEach((c) => {
+    c.setAttribute("aria-expanded", "false");
+    c.setAttribute("aria-controls", "preview");
+    // Clicking the open scene again closes it.
+    c.onclick = () => (selected === c ? collapse() : expand(c));
+  });
+  $("all").onclick = collapse;
+  show(null, null);
+})();
+</script>
+
+</body>
+</html>

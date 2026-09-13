@@ -1,0 +1,22 @@
+# Direct dependencies, pinned to the versions this was built and tested with
+# (Python 3.12). satellite-mvp is imported as a library and has its own list:
+#   pip install -r <satellite-mvp>/requirements.txt
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.5
+numpy==2.5.2
+rasterio==1.5.1
+scipy==1.18.1
+shapely==2.1.2
+pillow==12.3.0
+requests==2.34.2
+
+# Semantic search. Optional: without these it reports itself unavailable and
+# everything else keeps working.
+torch==2.13.0
+torchvision==0.28.0
+open_clip_torch==3.3.0
+
+# Tests
+pytest==9.1.1
+httpx==0.28.1

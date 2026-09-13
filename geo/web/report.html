@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report &middot; geo</title>
+<meta name="description" content="Sentinel-1 and Sentinel-2 change detection over any area of Earth.">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+<nav class="nav" aria-label="Primary">
+  <a class="nav__brand" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg><span>geo</span></a>
+  <div class="nav__links">
+    <a class="nav__link" href="index.html" data-page="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Ask</span></a>
+    <a class="nav__link" href="explore.html" data-page="explore.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 4-6 2v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Explore</span></a>
+    <a class="nav__link" href="results.html" data-page="results.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span>Results</span></a>
+    <a class="nav__link" href="compare.html" data-page="compare.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/></svg><span>Compare</span></a>
+    <a class="nav__link" href="timeline.html" data-page="timeline.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Timeline</span></a>
+    <a class="nav__link" href="report.html" data-page="report.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg><span>Report</span></a>
+    <a class="nav__link" href="drone.html" data-page="drone.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 9 5 5M15 9l4-4M9 15l-4 4M15 15l4 4"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg><span>Drone</span></a>
+    <a class="nav__link" href="about.html" data-page="about.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>About</span></a>
+  </div>
+  <div class="nav__job" id="navjob" aria-live="polite"></div>
+</nav>
+
+<main class="container">
+  <section class="sheet card card--flush">
+    <div class="sheet__body" id="sheet">
+      <div class="skeleton">Loading run...</div>
+    </div>
+  </section>
+</main>
+
+</div>
+<script src="shared.js"></script>
+<script>
+(async () => {
+  const host = $("sheet"), id = currentJob();
+  if (!id) { needRun(host, "A report"); return; }
+  let d;
+  try { d = await loadResult(id); }
+  catch (e) { host.innerHTML = '<div class="err">' + esc(e.message) + "</div>"; return; }
+  if (d.status !== "done") {
+    host.innerHTML = '<div class="card"><p>This run is <b>' + esc(d.status) + "</b>.</p></div>";
+    return;
+  }
+  const r = d.result, p = r.properties, s = p.stats, th = p.thresholds || {};
+  const types = s.change_types || [];
+  const total = types.reduce((a, c) => a + c.area_ha, 0);
+  const gap = s.optical_gap_pct == null ? 0 : s.optical_gap_pct;
+  const loc = p.located && p.located.place;
+  const place = loc && loc.name
+    ? loc.name.split(",").slice(0, 3).join(",")
+    : bboxKm(p.bbox) + " area";
+  const obs = p.observations || {};
+
+  host.innerHTML =
+    '<div class="sheet__head">' +
+      '<div style="flex:1"><p class="label-cap">Change detection report</p>' +
+        "<h1>" + esc(place) + "</h1>" +
+        (p.located ? '<p class="help">Asked: &ldquo;' + esc(p.located.query) + "&rdquo;</p>" : "") +
+        '<p class="mono help">' + p.bbox.map((v) => v.toFixed(3)).join(", ") + " &middot; " +
+        bboxKm(p.bbox) + " &middot; " + (obs.s2 || 0) + " optical and " + (obs.s1 || 0) +
+        " radar observations</p></div>" +
+      '<div class="sheet__figure"><p class="label-cap">Change detected</p>' +
+        '<div class="stat-value stat-value--lg">' + fmtHa(total) + " ha</div>" +
+        '<p class="help">across ' + r.features.length + " regions</p></div>" +
+    "</div>" +
+
+    '<div class="grid grid--2" style="margin-bottom:var(--space-5)">' +
+      '<section><p class="label-cap">What changed</p><table><tbody>' +
+        types.map((c) =>
+          '<tr><td><span class="swatch" style="background:' +
+          (CLASS_COLOURS[c.change_type] || CLASS_COLOURS.other) + '"></span>' + esc(c.label) +
+          '<div class="help" style="margin-left:19px">' + c.count + " region" +
+          (c.count === 1 ? "" : "s") + " &middot; confidence " + c.confidence +
+          '</div></td><td class="num">' + fmtHa(c.area_ha) + " ha</td></tr>").join("") +
+        '<tr class="total"><td>Total</td><td class="num">' + fmtHa(total) + " ha</td></tr>" +
+      "</tbody></table></section>" +
+
+      // Coverage as one ruled bar. Hatch is reserved for ground no sensor saw:
+      // outside the optical footprint is still radar-observed, so it sits in
+      // the radar segment, not the hatched one.
+      '<section><p class="label-cap">What could be observed</p>' +
+        '<div class="coverbar" role="img" aria-label="' + s.s2_usable_pct + "% optical, " + gap +
+          "% radar only, " + s.not_observed_pct + '% seen by neither sensor">' +
+          '<i style="width:' + s.s2_usable_pct + '%;background:var(--tier-optical)"></i>' +
+          '<i style="width:' + gap + '%;background:var(--tier-sar-gap)"></i>' +
+          '<i style="width:' + s.not_observed_pct + '%;background:var(--hatch-nodata)"></i>' +
+        "</div>" +
+        '<div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:6px 18px;margin-top:8px">' +
+          '<div class="legend__row"><span class="legend__key" style="background:var(--tier-optical)"></span><span>optical</span></div>' +
+          '<div class="legend__row"><span class="legend__key" style="background:var(--tier-sar-gap)"></span><span>radar only</span></div>' +
+          '<div class="legend__row"><span class="legend__key swatch--nodata"></span><span>seen by neither</span></div>' +
+        "</div>" +
+        '<table style="margin-top:10px"><tbody>' +
+          '<tr><td>Sentinel-2 usable after per-pixel masking</td><td class="num">' + s.s2_usable_pct + "%</td></tr>" +
+          '<tr><td>Sentinel-1 usable</td><td class="num">' + s.s1_usable_pct + "%</td></tr>" +
+          '<tr><td>&mdash; cloud, shadow or snow</td><td class="num">' + s.cloud_gap_pct + "%</td></tr>" +
+          '<tr><td>&mdash; outside the scene footprint</td><td class="num">' + s.never_imaged_pct + "%</td></tr>" +
+          '<tr class="total"><td>Seen by neither sensor</td><td class="num">' + s.not_observed_pct + "%</td></tr>" +
+        "</tbody></table>" +
+        (gap >= 1 ? '<div class="err"><b>' + gap + "%</b> of this area was unusable in optical " +
+          "imagery. An optical-only system reports that ground as <i>no data</i> &mdash; which in " +
+          "practice is read as <i>no change</i>. Radar observed it.</div>" : "") +
+      "</section>" +
+    "</div>" +
+
+    (s.persistence ?
+      '<section style="margin-bottom:var(--space-5)"><p class="label-cap">How much of it held up</p>' +
+      '<div class="grid--butted">' +
+        '<div><p class="stat-label">Confirmed by later dates</p><div class="stat-value stat-value--lg mono">' +
+          fmtHa(s.persistence.persistent_px / 100) + " ha</div></div>" +
+        '<div><p class="stat-label">Latest date only</p><div class="stat-value stat-value--lg mono">' +
+          fmtHa(s.persistence.latest_px / 100) + " ha</div></div>" +
+        '<div style="background:var(--color-primary)"><p class="stat-label">Rejected as transient</p>' +
+          '<div class="stat-value stat-value--lg mono" style="color:var(--color-destructive)">' +
+          fmtHa(s.persistence.transient_ha) + " ha</div></div>" +
+      "</div>" +
+      '<p class="help">A two-date comparison would have reported that ' +
+        fmtHa(s.persistence.transient_ha) + " ha as real change. Across the series it reverted, " +
+        "so it is excluded here and reported as the noise figure.</p></section>" : "") +
+
+    '<section><p class="label-cap">Provenance</p><table><tbody>' +
+      '<tr><td>Index / optical threshold</td><td class="num">' + esc((p.index || "").toUpperCase()) +
+        (th.optical != null ? " " + th.optical : "") + "</td></tr>" +
+      '<tr><td>Radar threshold</td><td class="num">' +
+        (th.sar_db != null ? th.sar_db + " dB" : "\u2014") + "</td></tr>" +
+      '<tr><td>Minimum patch</td><td class="num">' +
+        (th.sieve_px != null ? th.sieve_px + " px" : "\u2014") +
+        " &middot; areas from the sieved mask</td></tr>" +
+      (th.min_persist != null ? '<tr><td>Confirmations required</td><td class="num">' +
+        th.min_persist + "</td></tr>" : "") +
+      '<tr><td>Run</td><td class="num">' + esc(id) +
+        (d.created ? " &middot; " + esc(d.created) : "") + "</td></tr>" +
+      '<tr><td>Sources</td><td class="num">Element84 Earth Search &middot; ' +
+        "Microsoft Planetary Computer</td></tr>" +
+    "</tbody></table>" +
+    '<p class="help">Every region carries its scene IDs, thresholds and evidence string in the ' +
+      "GeoJSON export, so any figure above can be reproduced from the same public scenes.</p>" +
+    '<div class="row" style="margin-top:var(--space-4)">' +
+      '<button class="btn btn--primary btn--auto" id="print">Print / PDF</button>' +
+      '<a class="btn btn--auto" href="/api/export/' + encodeURIComponent(id) +
+      '.geojson">Download GeoJSON</a></div>' +
+    "</section>";
+
+  $("print").onclick = () => window.print();
+})();
+</script>
+
+</body>
+</html>

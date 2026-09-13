@@ -1,0 +1,35 @@
+# geo — Earth change monitoring configuration
+
+[paths]
+# satellite-mvp is imported as a library; nothing in it is ever modified.
+satellite_mvp = 'C:\Users\abdul\Downloads\satellite-mvp\satellite-mvp'
+cache_dir = ".cache"
+# Disk budget for cached arrays; least recently used arrays are deleted past it.
+cache_max_gb = 5
+# One status file and one GeoJSON per run; the newest 100 runs are kept.
+jobs_dir = "runs"
+
+[detect]
+# Both measured this session on real scenes; see the plan's regression baselines.
+sieve_size = 50          # min connected patch, pixels (50 px = 0.5 ha at 10 m)
+optical_threshold = 0.20 # normalized-index delta
+sar_threshold_db = 3.0   # dB log-ratio
+speckle_window = 5       # boxcar multilook window
+
+[quality]
+# Below this fraction of jointly-observed pixels, results are flagged low-confidence.
+min_clear_fraction = 0.5
+
+[chips]
+# Chip long-side in pixels. Over a 0.1 deg AOI: 1024 px = 10.8 m/px (native
+# Sentinel-2, ~8s), 768 px = 14.5 m/px (~7s), 512 px = 21.7 m/px (~5s).
+# 768 keeps close to native detail without the full cost.
+max_px = 768
+# JPEG quality. These are photographic rasters, so JPEG is ~8x smaller than
+# PNG and encodes ~25x faster, which matters more than lossless fidelity.
+jpeg_quality = 88
+
+[drone]
+# Drone flights are read only from inside this folder (relative to this file,
+# or absolute). Paths on the Drone page are relative to it.
+data_dir = "drone_data"

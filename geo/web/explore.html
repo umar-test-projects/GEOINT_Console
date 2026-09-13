@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore &middot; geo</title>
+<meta name="description" content="Sentinel-1 and Sentinel-2 change detection over any area of Earth.">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="shell">
+<nav class="nav" aria-label="Primary">
+  <a class="nav__brand" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg><span>geo</span></a>
+  <div class="nav__links">
+    <a class="nav__link" href="index.html" data-page="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Ask</span></a>
+    <a class="nav__link" href="explore.html" data-page="explore.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 4-6 2v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Explore</span></a>
+    <a class="nav__link" href="results.html" data-page="results.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span>Results</span></a>
+    <a class="nav__link" href="compare.html" data-page="compare.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/></svg><span>Compare</span></a>
+    <a class="nav__link" href="timeline.html" data-page="timeline.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Timeline</span></a>
+    <a class="nav__link" href="report.html" data-page="report.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h4"/></svg><span>Report</span></a>
+    <a class="nav__link" href="drone.html" data-page="drone.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 9 5 5M15 9l4-4M9 15l-4 4M15 15l4 4"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg><span>Drone</span></a>
+    <a class="nav__link" href="about.html" data-page="about.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>About</span></a>
+  </div>
+  <div class="nav__job" id="navjob" aria-live="polite"></div>
+</nav>
+
+<main class="container container--wide" style="display:flex;flex:1;min-height:0">
+  <aside class="explore__side" id="side" hidden style="width:340px;flex:none;overflow-y:auto;padding:var(--space-4);
+                border-right:1px solid var(--color-border)">
+    <div class="card">
+      <p class="card__title">Area</p>
+      <label for="bbox">Bounding box (west, south, east, north)</label>
+      <input id="bbox" value="-60.05,-3.15,-59.95,-3.05">
+      <button class="btn btn--ghost" id="draw" style="margin-top:var(--space-2)">
+        Draw on the map
+      </button>
+      <p class="help">Click draw, then drag across the map.</p>
+    </div>
+
+    <div class="card">
+      <p class="card__title">Dates</p>
+      <label for="s0">Range</label>
+      <div class="row">
+        <input type="date" id="s0" value="2023-01-01" aria-label="Range start">
+        <input type="date" id="s1d" value="2024-12-31" aria-label="Range end">
+      </div>
+      <label for="steps">Timestamps: <b id="stepsLbl">4</b></label>
+      <input type="range" id="steps" min="2" max="8" step="1" value="4">
+      <p class="help">More dates reject more transient difference, and cost more time.</p>
+    </div>
+
+    <div class="card">
+      <p class="card__title">Detection</p>
+      <label for="index">Optical index</label>
+      <select id="index">
+        <option value="ndvi">NDVI &mdash; vegetation</option>
+        <option value="ndwi">NDWI &mdash; water</option>
+        <option value="ndbi">NDBI &mdash; built-up</option>
+      </select>
+      <label for="ot">Optical threshold: <b id="otLbl">0.20</b></label>
+      <input type="range" id="ot" min="0.05" max="0.6" step="0.05" value="0.2">
+      <label for="st">Radar threshold: <b id="stLbl">3.0</b> dB</label>
+      <input type="range" id="st" min="1" max="8" step="0.5" value="3">
+      <label for="sv">Minimum patch: <b id="svLbl">50</b> px</label>
+      <input type="range" id="sv" min="0" max="300" step="10" value="50">
+      <p class="help">Minimum patch suppresses speckle. Raw radar gave 57,368 polygons;
+      50 px gave 120.</p>
+    </div>
+
+    <button class="btn btn--primary" id="detect">Detect change</button>
+    <div id="status" aria-live="polite"></div>
+  </aside>
+
+  <div class="explore__map" style="flex:1;position:relative;min-width:0">
+    <div id="map" style="position:absolute;inset:0"></div>
+  </div>
+</main>
+
+</div>
+<script src="shared.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script>
+const map = L.map("map", { zoomControl: false }).setView([-3.1, -60.0], 11);
+
+// The controls panel starts hidden so the map has the whole screen. This
+// button sits above the zoom control and shows or hides it.
+function toggleSide() {
+  const side = $("side"), open = side.hidden;
+  side.hidden = !open;
+  const b = $("sideToggle");
+  b.setAttribute("aria-expanded", open ? "true" : "false");
+  b.setAttribute("aria-label", open ? "Hide controls" : "Show controls");
+  // Leaflet measures its container once; tell it the width changed.
+  map.invalidateSize();
+}
+const PanelToggle = L.Control.extend({
+  options: { position: "topleft" },
+  onAdd() {
+    const wrap = L.DomUtil.create("div", "map-tools");
+    const bar = L.DomUtil.create("div", "leaflet-bar", wrap);
+    const b = L.DomUtil.create("button", "panel-toggle__btn", bar);
+    b.type = "button";
+    b.id = "sideToggle";
+    b.setAttribute("aria-controls", "side");
+    b.setAttribute("aria-expanded", "false");
+    b.setAttribute("aria-label", "Show controls");
+    b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    // Find and detect beside the menu button: the place is located, the map
+    // moves there, and a detection runs with the dates set in the panel.
+    const find = L.DomUtil.create("div", "map-search-wrap", wrap);
+    const form = L.DomUtil.create("form", "map-search", find);
+    form.setAttribute("role", "search");
+    form.innerHTML =
+      '<input id="mapSearch" type="search" placeholder="Find and detect, e.g. construction near lucknow" ' +
+      'autocomplete="off" aria-label="Find a place and detect change">' +
+      '<button type="submit" aria-label="Find and detect">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/>' +
+      '<path d="m20 20-3.5-3.5"/></svg></button>';
+    const msg = L.DomUtil.create("div", "map-search__msg", find);
+    msg.setAttribute("aria-live", "polite");
+    let searching = false;
+    L.DomEvent.on(form, "submit", async (e) => {
+      L.DomEvent.preventDefault(e);
+      const q = form.querySelector("input").value.trim();
+      if (!q || searching) return;
+      searching = true;
+      const go = form.querySelector("button");
+      go.disabled = $("detect").disabled = true;
+      msg.textContent = "Locating...";
+      try {
+        const steps = Number($("steps").value);
+        const d = await postJSON("/api/smart", {
+          query: q, start: $("s0").value, end: $("s1d").value, steps: steps,
+        });
+        const f = d.located;
+        $("bbox").value = f.bbox.map((v) => v.toFixed(4)).join(",");
+        $("index").value = f.index_hint;
+        showAoi();
+        const place = esc(f.place.name.split(",").slice(0, 3).join(",")) +
+          (f.alternatives.length ? " (" + f.alternatives.length + " other matches)" : "");
+        setJob(d.job_id, { replace: true });
+        const done = await pollJob(d.job_id, (s) => {
+          msg.innerHTML = place + "<br>Detecting " + esc(f.what || "any change") + " in " +
+            esc(f.index_hint.toUpperCase()) + " across " + steps + " dates... " + s + "s";
+        });
+        if (done.status === "failed") {
+          msg.innerHTML = place + "<br>" + esc(done.error);
+        } else {
+          drawResult((await loadResult(d.job_id)).result);
+          msg.innerHTML = place + "<br>" + done.feature_count + " change regions. " +
+            '<a href="' + linkWithJob("results.html") + '">See what changed &rarr;</a>';
+        }
+      } catch (err) {
+        msg.textContent = err.message;
+      } finally {
+        searching = false;
+        go.disabled = $("detect").disabled = false;
+      }
+    });
+    // Enter runs the search through the handler above. Cancelling the keydown
+    // means Enter never falls back to a native form submit, which would reload
+    // the page. Skipped while an input method is still composing characters.
+    L.DomEvent.on(form.querySelector("input"), "keydown", (e) => {
+      if (e.key !== "Enter" || e.isComposing) return;
+      L.DomEvent.preventDefault(e);
+      form.requestSubmit();
+    });
+    L.DomEvent.disableClickPropagation(wrap);
+    L.DomEvent.disableScrollPropagation(wrap);
+    L.DomEvent.on(b, "click", toggleSide);
+    return wrap;
+  },
+});
+new PanelToggle().addTo(map);
+L.control.zoom({ position: "topleft" }).addTo(map);
+const sat = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  { maxZoom: 19, attribution: "Tiles &copy; Esri, Maxar" }).addTo(map);
+const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { maxZoom: 19, attribution: "&copy; OpenStreetMap" });
+const labels = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+  { maxZoom: 19 }).addTo(map);
+L.control.layers({ Satellite: sat, Streets: streets }, { "Place names": labels }).addTo(map);
+
+let aoi = null, result = null, drawing = false, start = null, rubber = null;
+
+const bboxVal = () => {
+  const p = $("bbox").value.split(",").map(Number);
+  return p.length === 4 && !p.some(isNaN) ? p : null;
+};
+function showAoi(fit) {
+  const b = bboxVal(); if (!b) return;
+  if (aoi) map.removeLayer(aoi);
+  aoi = L.rectangle([[b[1], b[0]], [b[3], b[2]]],
+    { color: "#fff", weight: 1.5, dashArray: "5 4", fill: false }).addTo(map);
+  if (fit !== false) map.fitBounds(aoi.getBounds(), { padding: [28, 28] });
+}
+$("bbox").addEventListener("change", () => showAoi());
+
+$("draw").onclick = () => {
+  drawing = !drawing;
+  $("draw").textContent = drawing ? "Drag on the map..." : "Draw on the map";
+  map.dragging[drawing ? "disable" : "enable"]();
+};
+map.on("mousedown", (e) => { if (drawing) start = e.latlng; });
+map.on("mousemove", (e) => {
+  if (!drawing || !start) return;
+  if (rubber) map.removeLayer(rubber);
+  rubber = L.rectangle(L.latLngBounds(start, e.latlng), { color: "#FBFAF7", weight: 2 }).addTo(map);
+});
+map.on("mouseup", (e) => {
+  if (!drawing || !start) return;
+  const b = L.latLngBounds(start, e.latlng);
+  $("bbox").value = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+    .map((v) => v.toFixed(4)).join(",");
+  if (rubber) { map.removeLayer(rubber); rubber = null; }
+  start = null; drawing = false;
+  $("draw").textContent = "Draw on the map";
+  map.dragging.enable();
+  showAoi(false);
+});
+
+const sync = (id, lbl, fmt) => {
+  const f = () => { $(lbl).textContent = fmt($(id).value); };
+  $(id).addEventListener("input", f); f();
+};
+sync("ot", "otLbl", (v) => Number(v).toFixed(2));
+sync("st", "stLbl", (v) => Number(v).toFixed(1));
+sync("sv", "svLbl", (v) => v);
+sync("steps", "stepsLbl", (v) => v);
+
+let byId = {};
+function drawResult(fc) {
+  if (result) map.removeLayer(result);
+  byId = {};
+  let n = 0;
+  result = L.geoJSON(fc, {
+    style: (f) => ({
+      color: CLASS_COLOURS[f.properties.change_type] || CLASS_COLOURS.other,
+      weight: 2,
+      fillOpacity: f.properties.direction === "loss" ? 0.45 : 0.18,
+      dashArray: f.properties.direction === "gain" ? "4 3" : null,
+    }),
+    onEachFeature: (f, l) => {
+      const q = f.properties;
+      const rid = q.id != null ? q.id : n;
+      n += 1;
+      byId[rid] = l;
+      const job = currentJob();
+      l.bindPopup("<b>" + esc(q.change_label || "Change") + "</b><br>" + q.area_ha + " ha" +
+        (q.change_date ? " &middot; detected " + q.change_date : "") +
+        "<br><i>" + esc(q.evidence || "") + "</i>" +
+        (job ? '<br><a href="results.html?job=' + encodeURIComponent(job) + "&region=" + rid +
+          '">Region detail &rarr;</a>' : ""));
+    },
+  }).addTo(map);
+}
+
+$("detect").onclick = async () => {
+  const b = bboxVal();
+  if (!b) { $("status").innerHTML = '<div class="err">Bounding box needs four numbers.</div>'; return; }
+  $("detect").disabled = true;
+  $("status").innerHTML = '<div class="note">Submitting...</div>';
+  try {
+    const d = await postJSON("/api/detect", {
+      bbox: b, start: $("s0").value, end: $("s1d").value, steps: Number($("steps").value),
+      index: $("index").value, optical_threshold: Number($("ot").value),
+      sar_threshold_db: Number($("st").value), sieve_size: Number($("sv").value),
+    });
+    setJob(d.job_id, { replace: true });
+    const done = await pollJob(d.job_id, (s) => {
+      $("status").innerHTML = '<div class="note">Reading imagery and detecting... ' + s + "s</div>";
+    });
+    if (done.status === "failed") {
+      $("status").innerHTML = '<div class="err">' + esc(done.error) + "</div>";
+    } else {
+      const full = await loadResult(d.job_id);
+      drawResult(full.result);
+      $("status").innerHTML = '<div class="note">' + done.feature_count + " regions in " +
+        done.secs + 's.<a class="btn btn--primary btn--auto" style="margin-top:var(--space-2)" href="' +
+        linkWithJob("results.html") + '">See what changed</a></div>';
+    }
+  } catch (e) {
+    $("status").innerHTML = '<div class="err">' + esc(e.message) + "</div>";
+  } finally {
+    $("detect").disabled = false;
+  }
+};
+
+// Arriving with ?job=... - show that run rather than a blank map; with
+// &region=<n>, the link from a Results drawer, open that region as well.
+(async () => {
+  const id = currentJob();
+  if (!id) { showAoi(); return; }
+  try {
+    const d = await loadResult(id);
+    if (d.status !== "done") { showAoi(); return; }
+    const p = d.result.properties;
+    $("bbox").value = p.bbox.map((v) => v.toFixed(4)).join(",");
+    if (p.index) $("index").value = p.index;
+    showAoi();
+    drawResult(d.result);
+    $("status").innerHTML = '<div class="note">Showing run ' + esc(id.slice(0, 8)) +
+      " &middot; " + d.result.features.length + " regions.</div>";
+    const want = new URLSearchParams(location.search).get("region");
+    const layer = want !== null ? byId[Number(want)] : null;
+    if (layer) {
+      map.fitBounds(layer.getBounds(), { padding: [80, 80], maxZoom: 16 });
+      layer.openPopup();
+    }
+  } catch (e) { showAoi(); }
+})();
+</script>
+
+</body>
+</html>
