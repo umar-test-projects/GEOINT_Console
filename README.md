@@ -1,4 +1,4 @@
-# geo: Earth change monitoring
+# GEOINT Console: Earth change monitoring
 
 Detect and explain change anywhere on Earth from free public satellite data,
 with no API key.
