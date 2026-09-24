@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# Local data written by the server
+geo/.cache/
+geo/drone_data/

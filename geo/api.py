@@ -15,9 +15,11 @@ import secrets
 import threading
 import time
 import traceback
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from datetime import date
+from pathlib import Path, PureWindowsPath
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -47,11 +49,49 @@ BBox = tuple[float, float, float, float]
 DateStr = Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
 
 
+def _real_date(v: str | None) -> str | None:
+    """The pattern admits 2023-02-30; refuse it here rather than minutes into a run."""
+    if v is not None:
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(f"{v} is not a calendar date") from None
+    return v
+
+
+def _ordered_window(start: str, end: str, what: str) -> None:
+    if end < start:  # ISO dates order as strings
+        raise ValueError(f"{what}: end {end} is before start {start}")
+
+
 def _is_loopback(host: str) -> bool:
     try:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+#: Names a browser uses for this machine. Without GEO_PASSWORD the Host header
+#: must be one of them: a web page can point its own domain at 127.0.0.1 (DNS
+#: rebinding), and the browser then talks to this server from loopback as that
+#: page's origin -- the address check alone would let it read every run.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+#: Methods that change state. A cross-site page cannot read their answers, but
+#: can still send them: FastAPI parses a body with no Content-Type as JSON, so
+#: a no-cors fetch from any site the user visits could queue runs here. Only a
+#: JSON Content-Type is accepted, and a browser sends that cross-site only
+#: after a CORS preflight, which this server never grants. Unlike comparing
+#: Origin with Host, this holds behind a reverse proxy that rewrites Host.
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _host_name(netloc: str) -> str:
+    return (urllib.parse.urlsplit("//" + netloc).hostname or "").lower()
+
+
+def _json_body(request: Request) -> bool:
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    return media == "application/json"
 
 
 def _password_ok(header: str, password: str) -> bool:
@@ -134,6 +174,12 @@ async def access_guard(request: Request, call_next):
     elif not _is_loopback(client):
         return JSONResponse({"detail": "this server accepts local connections only; "
                              "set GEO_PASSWORD to serve other machines"}, status_code=403)
+    elif _host_name(request.headers.get("host", "")) not in LOOPBACK_HOSTS:
+        return JSONResponse({"detail": "open this server as localhost or 127.0.0.1; "
+                             "set GEO_PASSWORD to serve it under another name"}, status_code=403)
+    if request.method in UNSAFE_METHODS and not _json_body(request):
+        return JSONResponse({"detail": "send the request body as application/json"},
+                            status_code=415)
     response = await call_next(request)
     response.headers.update(SECURITY_HEADERS)
     return response
@@ -219,6 +265,20 @@ class DetectRequest(BaseModel):
             raise ValueError("bbox is outside valid lon/lat range")
         return v
 
+    @field_validator("start", "end")
+    @classmethod
+    def _calendar_date(cls, v: str | None) -> str | None:
+        return _real_date(v)
+
+    @field_validator("window_a", "window_b")
+    @classmethod
+    def _calendar_window(cls, v):
+        if v is not None:
+            _real_date(v[0])
+            _real_date(v[1])
+            _ordered_window(v[0], v[1], "window")
+        return v
+
     @model_validator(mode="after")
     def _one_mode(self):
         has_series = self.start and self.end and self.steps
@@ -227,6 +287,8 @@ class DetectRequest(BaseModel):
             raise ValueError(
                 "supply either start+end+steps (series) or window_a+window_b (pair)"
             )
+        if has_series:
+            _ordered_window(self.start, self.end, "series")
         return self
 
     @property
@@ -237,9 +299,9 @@ class DetectRequest(BaseModel):
 @app.get("/api/scenes")
 def scenes(
     bbox: str = Query(..., description="west,south,east,north"),
-    start: str = Query(...),
-    end: str = Query(...),
-    max_cloud: float = 80.0,
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    max_cloud: float = Query(80.0, ge=0, le=100),
 ):
     """What each sensor actually has for this AOI and window.
 
@@ -320,7 +382,10 @@ def drone_paths(req: DroneRequest) -> tuple[str, str]:
     out = []
     for raw in (req.before, req.after):
         path = (DRONE_DIR / raw).resolve()
-        if not path.is_relative_to(DRONE_DIR):
+        # Judged by Windows rules as well on every OS, so `C:/...` and `..\`
+        # are refused the same way wherever the server happens to run.
+        win = PureWindowsPath(raw)
+        if win.is_absolute() or win.drive or ".." in win.parts or not path.is_relative_to(DRONE_DIR):
             raise HTTPException(400, f"flights must be inside the drone folder {DRONE_DIR}; got {raw!r}")
         out.append(str(path))
     return out[0], out[1]
@@ -469,7 +534,9 @@ async def chip(
     return Response(
         content=jpeg,
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
+        # private: behind GEO_PASSWORD this is authenticated content, which a
+        # shared cache between the browser and the server must not keep.
+        headers={"Cache-Control": "private, max-age=86400"},
     )
 
 
@@ -563,6 +630,16 @@ class SmartRequest(BaseModel):
     span_deg: float = Field(locate.DEFAULT_SPAN_DEG, ge=locate.MIN_SPAN_DEG,
                             le=locate.MAX_SPAN_DEG)
     top_k: int = Field(12, ge=1, le=200)
+
+    @field_validator("start", "end")
+    @classmethod
+    def _calendar_date(cls, v: str) -> str:
+        return _real_date(v)
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        _ordered_window(self.start, self.end, "series")
+        return self
 
 
 @app.post("/api/smart")

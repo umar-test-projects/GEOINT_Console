@@ -75,11 +75,11 @@
       const url = "/api/chip?bbox=" + bbox.join(",") + "&scene_id=" +
         encodeURIComponent(stop.id) + "&sensor=" + sensor.toLowerCase() + "&px=128";
       return '<td><button class="chip" data-id="' + esc(stop.id) + '" data-sensor="' + sensor +
-        '" data-date="' + stop.date + '" data-detail="' + detail +
-        '" aria-label="View ' + sensor + " " + stop.date + ", " + detail + '">' +
+        '" data-date="' + esc(stop.date) + '" data-detail="' + esc(detail) +
+        '" aria-label="View ' + sensor + " " + esc(stop.date) + ", " + esc(detail) + '">' +
         '<img class="chip__img" loading="lazy" src="' + url + '" alt="">' +
-        '<div class="chip__date mono">' + stop.date + "</div>" +
-        '<div class="help">' + detail + "</div></button></td>";
+        '<div class="chip__date mono">' + esc(stop.date) + "</div>" +
+        '<div class="help">' + esc(detail) + "</div></button></td>";
     }).join("");
     return '<tr><th scope="row">' + label + "</th>" + cells + "</tr>";
   }).join("");

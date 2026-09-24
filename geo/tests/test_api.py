@@ -11,12 +11,15 @@ import raster
 
 LOCAL = ("127.0.0.1", 50000)
 REMOTE = ("203.0.113.9", 50000)
+LOCAL_URL = "http://127.0.0.1:8770"
 
 
 @pytest.fixture
-def local(monkeypatch):
+def local(monkeypatch, tmp_path):
     monkeypatch.delenv("GEO_PASSWORD", raising=False)
-    return TestClient(api.app, client=LOCAL)
+    # A run a test lets through must not land among the real ones.
+    monkeypatch.setattr(jobs, "STORE", jobs.JobStore(tmp_path / "runs"))
+    return TestClient(api.app, client=LOCAL, base_url=LOCAL_URL)
 
 
 def test_remote_client_refused_without_password(monkeypatch):
@@ -167,3 +170,32 @@ def test_drone_paths_confined_to_drone_folder(local, path):
         r = local.post(route, json={"before": path, "after": "ok.tif"})
         assert r.status_code == 400
         assert "drone folder" in r.json()["detail"]
+
+
+def test_rebound_hostname_refused_without_password(monkeypatch):
+    """DNS rebinding: a page on evil.example resolves itself to 127.0.0.1, so
+    the browser connects from loopback while naming the attacker's host."""
+    monkeypatch.delenv("GEO_PASSWORD", raising=False)
+    for url in ("http://evil.example:8770", "http://127.0.0.1.evil.example"):
+        assert TestClient(api.app, client=LOCAL, base_url=url).get("/api/jobs").status_code == 403
+    for url in ("http://localhost:8770", "http://[::1]:8770", LOCAL_URL):
+        assert TestClient(api.app, client=LOCAL, base_url=url).get("/api/health").status_code == 200
+
+
+def test_state_changing_requests_need_a_json_content_type(local):
+    """A cross-site no-cors fetch can send text/plain or no type at all, but
+    never application/json without a preflight this server does not grant."""
+    body = '{"query": "lucknow"}'
+    for headers in ({}, {"Content-Type": "text/plain"},
+                    {"Content-Type": "application/x-www-form-urlencoded"}):
+        r = local.post("/api/locate", content=body, headers=headers)
+        assert r.status_code == 415, headers
+
+
+def test_impossible_dates_rejected_before_queueing(local):
+    for bad in ({"start": "2023-02-30"}, {"start": "2024-06-01", "end": "2024-01-01"}):
+        assert local.post("/api/detect", json={**SMALL_RUN, **bad}).status_code == 422, bad
+    pair = {"bbox": SMALL_RUN["bbox"], "window_a": ["2023-03-01", "2023-01-01"],
+            "window_b": ["2024-01-01", "2024-03-01"]}
+    assert local.post("/api/detect", json=pair).status_code == 422
+    assert local.post("/api/smart", json={"query": "x", "start": "2023-13-01"}).status_code == 422

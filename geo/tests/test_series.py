@@ -178,3 +178,86 @@ def test_two_date_runs_carry_no_change_date():
                   np.zeros((n, n), "float32"), np.ones((n, n), bool), planes=planes)
     props = fuse.to_features(r, from_origin(500_000, 1_000_000, 10, 10), "EPSG:32643")[0]["properties"]
     assert "change_date" not in props
+
+
+# ------------------------------------------- orchestration across sensors
+
+
+def _fake_sources(monkeypatch, s2_steps, s1_by_step, s2_planes, s1_db):
+    """Stub both sensors. `s1_by_step[step]` lists (id, orbit) newest first."""
+    import series_run
+    from sources import s1 as s1src
+    from sources import s2 as s2src
+
+    wins = series.windows("2023-01-01", "2023-12-31", 4)
+    step_of = {w[0]: i for i, w in enumerate(wins)}
+
+    def best_scene(bbox, start, end, max_cloud=80.0):
+        step = step_of[start]
+        if step not in s2_steps:
+            raise s2src.SceneSearchError("cloudy")
+        return {"id": f"s2-{step}", "properties": {"datetime": start + "T00:00:00Z",
+                                                   "eo:cloud_cover": 1.0}}
+
+    def load_all(scene, grid, bbox):
+        step = int(scene["id"].split("-")[1])
+        ones = np.ones(grid.shape, dtype=bool)
+        return s2_planes(step, grid.shape), ones, np.full(grid.shape, 4, "uint8")
+
+    def search(bbox, start, end, orbit_state=None):
+        step = step_of[start]
+        return [{"id": sid, "properties": {"datetime": start + "T00:00:00Z",
+                                           "sat:relative_orbit": orbit}}
+                for sid, orbit in s1_by_step.get(step, [])]
+
+    def load_db(scene, grid, bbox, polarization="vv", speckle=None):
+        return s1_db(scene["id"], grid.shape), np.ones(grid.shape, dtype=bool)
+
+    monkeypatch.setattr(s2src, "best_scene", best_scene)
+    monkeypatch.setattr(s2src, "load_all", load_all)
+    monkeypatch.setattr(s1src, "search", search)
+    monkeypatch.setattr(s1src, "load_db", load_db)
+    return series_run
+
+
+BOX = (77.0, 12.0, 77.01, 12.01)
+
+
+def _flat_planes(step, shape, patch_ndvi=None):
+    planes = {k: np.zeros(shape, dtype="float32") for k in ("ndvi", "ndwi", "ndbi")}
+    if patch_ndvi is not None:
+        planes["ndvi"][10:50, 10:50] = patch_ndvi
+    return planes
+
+
+def test_radar_series_holds_one_relative_orbit(monkeypatch):
+    """Mixing tracks measures the change of viewing geometry, not the ground."""
+    s1 = {0: [("a0", 10)], 1: [("b1", 99), ("a1", 10)], 2: [("a2", 10)], 3: [("b3", 99), ("a3", 10)]}
+    run = _fake_sources(monkeypatch, {0, 1, 2, 3}, s1,
+                        lambda step, shape: _flat_planes(step, shape),
+                        lambda sid, shape: np.zeros(shape, "float32"))
+    out = run.run_series(BOX, "2023-01-01", "2023-12-31", 4, use_s2=False)
+    radar = [t for t in out["properties"]["scenes"] if t["sensor"] == "S1"]
+    assert [t["id"] for t in radar] == ["a0", "a1", "a2", "a3"]
+    assert {t["relative_orbit"] for t in radar} == {10}
+
+
+def test_radar_is_read_at_the_window_optical_dated_the_change(monkeypatch):
+    """Optical missed window 2, so its second comparison date is window 3.
+    Radar must be read at window 3 too, not at its own second date (window 2)."""
+    s1 = {k: [(f"r{k}", 10)] for k in range(4)}
+
+    def s1_db(sid, shape):
+        db = np.zeros(shape, "float32")
+        if sid == "r3":
+            db[10:50, 10:50] = -6.0
+        return db
+
+    run = _fake_sources(
+        monkeypatch, {0, 1, 3}, s1,
+        lambda step, shape: _flat_planes(step, shape, -0.5 if step == 3 else None),
+        s1_db)
+    out = run.run_series(BOX, "2023-01-01", "2023-12-31", 4)
+    feats = [f["properties"] for f in out["features"] if f["properties"]["tier"] == "confirmed"]
+    assert feats, [f["properties"]["tier"] for f in out["features"]]
+    assert feats[0]["sar_delta_db"] == pytest.approx(-6.0)

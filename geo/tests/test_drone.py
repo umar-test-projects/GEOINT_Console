@@ -160,3 +160,57 @@ def test_drone_results_declare_the_absent_cloud_mask(tmp_path):
     b = write_tif(tmp_path / "b.tif", rgbn())
     out = drone.compare(a, b)
     assert any("nodata only" in n for n in out["notes"])
+
+
+# ------------------------------------------------------------- validity
+
+
+def test_alpha_band_is_not_mistaken_for_nir(tmp_path):
+    from rasterio.enums import ColorInterp
+
+    path = tmp_path / "rgba.tif"
+    arr = np.stack([np.full((SIZE, SIZE), v, dtype="uint8") for v in (60, 150, 60, 255)])
+    with rasterio.open(
+        path, "w", driver="GTiff", height=SIZE, width=SIZE, count=4, dtype="uint8",
+        crs=CRS, transform=from_origin(500_000, 1_000_000, RES, RES),
+        photometric="RGB", alpha="YES",
+    ) as dst:
+        dst.write(arr)
+        dst.colorinterp = [ColorInterp.red, ColorInterp.green, ColorInterp.blue, ColorInterp.alpha]
+    info = drone.inspect(path)
+    assert info["bands"] == 3
+    assert info["index"] == "vari"
+
+
+def test_transparent_padding_is_unobserved_not_change(tmp_path):
+    before = rgbn(veg=True)
+    after = rgbn(veg=True)
+    for band in after:  # the after flight's padding, written as zeros
+        band[:, :60] = 0
+    a = write_tif(tmp_path / "a.tif", before)
+    b = tmp_path / "b.tif"
+    arr = np.stack(after).astype("float32")
+    with rasterio.open(
+        b, "w", driver="GTiff", height=SIZE, width=SIZE, count=4, dtype="float32",
+        crs=CRS, transform=from_origin(500_000, 1_000_000, RES, RES), nodata=0,
+    ) as dst:
+        dst.write(arr)
+    out = drone.compare(a, b)
+    assert not out["valid"][:, :60].any()
+    res = detect.detect(
+        out["diff"], out["valid"], out["grid"].transform, out["grid"].crs,
+        threshold=0.2, sieve_size=50, pixel_size_m=out["grid"].resolution,
+    )
+    assert res.features == []
+
+
+def test_realignment_does_not_wrap_edges_into_change(tmp_path, monkeypatch):
+    monkeypatch.setattr(drone, "phase_correlation_shift", lambda a, b: (5.0, -7.0, 1.0))
+    before = rgbn(veg=True)
+    before[3][:, :20] = 0.2  # an edge unlike the opposite edge
+    a = write_tif(tmp_path / "a.tif", before)
+    b = write_tif(tmp_path / "b.tif", [x.copy() for x in before])
+    out = drone.compare(a, b)
+    assert not out["valid"][:5, :].any()
+    assert not out["valid"][:, -7:].any()
+    assert out["valid"][5:, :-7].all()

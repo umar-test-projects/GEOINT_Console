@@ -66,19 +66,59 @@ def _load_one_date(bbox, grid, window, max_cloud, polarization, speckle, want_s1
             out["notes"].append(f"{window[0]} to {window[1]}: no usable Sentinel-2 ({exc})")
 
     if want_s1:
+        # Radar is only searched here. Which pass to read depends on every
+        # window at once -- see _pick_orbit -- so loading waits for that.
         try:
             scenes = s1src.search(bbox, *window, orbit_state="descending")
             if not scenes:
                 raise s1src.SceneSearchError("no descending pass in this window")
-            scene = scenes[0]
-            db, valid = s1src.load_db(scene, grid, bbox, polarization, speckle)
-            out["s1"] = {
-                "scene": scene, "db": db, "valid": valid,
-                "described": s1src.describe(scene),
-            }
+            out["s1_candidates"] = scenes
         except Exception as exc:  # noqa: BLE001
             out["notes"].append(f"{window[0]} to {window[1]}: no usable Sentinel-1 ({exc})")
     return out
+
+
+def _orbit(scene):
+    return scene["properties"].get("sat:relative_orbit")
+
+
+def _pick_orbit(loaded) -> tuple[object, int]:
+    """The relative orbit that covers the most windows, and how many.
+
+    Backscatter depends on viewing geometry, so a series mixing tracks measures
+    the change of track at every date where it switches, not the ground. Most
+    places are seen by more than one descending track, so the newest pass in
+    each window would mix them routinely. One track is held for the whole
+    series instead -- the one that keeps the most observations; ties go to the
+    track seen earliest, so the baseline is kept.
+    """
+    counts: dict = {}
+    for d in loaded:
+        for orbit in dict.fromkeys(_orbit(s) for s in d.get("s1_candidates", ())):
+            counts[orbit] = counts.get(orbit, 0) + 1
+    if not counts:
+        return None, 0
+    best = max(counts.values())
+    return next(o for o, c in counts.items() if c == best), best
+
+
+def _load_s1(d, orbit, grid, bbox, polarization, speckle) -> None:
+    """Load the newest pass on `orbit` in one window into `d`, in place."""
+    if not d.get("s1_candidates"):
+        return
+    window = d["window"]
+    on_track = [s for s in d["s1_candidates"] if _orbit(s) == orbit]
+    if not on_track:
+        d["notes"].append(
+            f"{window[0]} to {window[1]}: no Sentinel-1 pass on relative orbit {orbit}")
+        return
+    scene = on_track[0]
+    try:
+        db, valid = s1src.load_db(scene, grid, bbox, polarization, speckle)
+    except Exception as exc:  # noqa: BLE001
+        d["notes"].append(f"{window[0]} to {window[1]}: no usable Sentinel-1 ({exc})")
+        return
+    d["s1"] = {"scene": scene, "db": db, "valid": valid, "described": s1src.describe(scene)}
 
 
 def run_series(
@@ -114,6 +154,10 @@ def run_series(
                                      speckle, use_s1, use_s2),
             wins,
         ))
+        orbit, seen_in = _pick_orbit(loaded)
+        if seen_in:
+            list(pool.map(
+                lambda d: _load_s1(d, orbit, grid, bbox, polarization, speckle), loaded))
 
     # Stamp the window index on every scene. Optical and radar are acquired on
     # different days, so they only line up as a table if each is keyed to the
@@ -180,11 +224,17 @@ def run_series(
         # the two sensors describe one moment rather than two that merely fall
         # inside the same run.
         if optical is not None:
-            s1_diff = np.where(
-                optical.change_index >= 0,
-                _plane_at(diffs, optical.change_index),
-                radar.signed,
-            )
+            # The two sensors keep separate observation lists -- either can
+            # miss a window the other has -- so an optical date index is
+            # translated through the window it came from, never reused as a
+            # radar index. A window radar missed falls back to radar's own.
+            s1_steps = [d["s1"]["described"]["step"] for d in s1_dates[1:]]
+            lut = np.array([s1_steps.index(d["s2"]["described"]["step"])
+                            if d["s2"]["described"]["step"] in s1_steps else -1
+                            for d in s2_dates[1:]], dtype="int64")
+            radar_at = np.where(optical.change_index >= 0,
+                                lut[np.maximum(optical.change_index, 0)], -1)
+            s1_diff = np.where(radar_at >= 0, _plane_at(diffs, radar_at), radar.signed)
         else:
             s1_diff = radar.signed
         s1_valid = valids.any(axis=0)

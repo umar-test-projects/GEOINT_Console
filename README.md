@@ -178,8 +178,12 @@ scene ids it was made from.
 geo was built as a single-user local tool. Its defaults are safe for that, and
 it can be exposed with care:
 
-- **Without `GEO_PASSWORD`**, the server answers only this machine. Every
-  other client gets 403.
+- **Without `GEO_PASSWORD`**, the server answers only this machine, and only
+  when addressed as `localhost`, `127.0.0.1` or `[::1]`. Every other client,
+  and any other host name (which is what a DNS-rebinding page would send),
+  gets 403.
+- `POST` requests must be sent as `application/json`, so a page on another
+  site cannot queue runs through the user's browser.
 - **With `GEO_PASSWORD`**, every request, pages included, needs HTTP Basic
   auth (any username). Ten wrong passwords from one address lock it out for
   ten minutes.

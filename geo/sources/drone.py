@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from rasterio.enums import Resampling
+from rasterio.enums import ColorInterp, Resampling
 from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
@@ -33,7 +33,9 @@ from raster import Grid  # noqa: E402
 from change_detection.alignment import phase_correlation_shift  # noqa: E402
 
 #: Band naming by count. Anything with a 4th band is assumed NIR, which is the
-#: convention for multispectral drone payloads (RGN / RGNIR).
+#: convention for multispectral drone payloads (RGN / RGNIR) -- unless GDAL
+#: tags it as alpha: RGBA is the most common orthophoto export of all, and its
+#: transparency band read as NIR would make every "NDVI" value meaningless.
 RGB_BANDS = 3
 
 
@@ -48,7 +50,8 @@ def inspect(path) -> dict:
         raise DroneError(f"{path} does not exist")
     try:
         with rasterio.open(path) as src:
-            crs, count, res, bounds = src.crs, src.count, src.res, src.bounds
+            crs, res, bounds = src.crs, src.res, src.bounds
+            count = sum(ci != ColorInterp.alpha for ci in src.colorinterp)
             dtype = src.dtypes[0]
     except rasterio.errors.RasterioIOError as exc:
         raise DroneError(f"{path.name} is not a readable raster: {exc}") from None
@@ -134,6 +137,26 @@ def _read(path, grid: Grid, band: int) -> np.ndarray:
             return vrt.read(band).astype("float32")
 
 
+def _valid(path, grid: Grid) -> np.ndarray:
+    """Where a flight actually has pixels on the shared grid.
+
+    The warp fills ground outside the flight with zeros, which are finite, and
+    an RGBA export marks its own padding as transparent. Both must be excluded:
+    a zero-filled edge compared against real imagery is invented change. A
+    warp-added alpha band covers the footprint and any nodata value; a
+    source's own alpha band is honoured through its dataset mask.
+    """
+    with rasterio.open(path) as src:
+        has_alpha = ColorInterp.alpha in src.colorinterp
+        with WarpedVRT(
+            src, crs=grid.crs, transform=grid.transform,
+            width=grid.width, height=grid.height, resampling=Resampling.nearest,
+            add_alpha=not has_alpha,
+        ) as vrt:
+            mask = vrt.dataset_mask() if has_alpha else vrt.read(vrt.count)
+    return mask > 0
+
+
 def vegetation_index(path, grid: Grid, has_nir: bool) -> np.ndarray:
     """NDVI when a NIR band exists, otherwise the VARI fallback."""
     red, green, blue = _read(path, grid, 1), _read(path, grid, 2), _read(path, grid, 3)
@@ -168,6 +191,8 @@ def compare(before, after, *, max_shift_px: int = 32) -> dict:
     # nodata only -- there is no cloud mask to lean on here.
     notes.append("drone imagery has no scene-classification band; validity is nodata only")
 
+    valid_a, valid_b = _valid(before, grid), _valid(after, grid)
+
     dy, dx, sharpness = phase_correlation_shift(idx_a, idx_b)
     if abs(dy) > max_shift_px or abs(dx) > max_shift_px:
         notes.append(
@@ -175,9 +200,21 @@ def compare(before, after, *, max_shift_px: int = 32) -> dict:
             f"{max_shift_px} px tolerance; co-register the flights before trusting this result"
         )
     else:
-        idx_b = np.roll(idx_b, (int(round(dy)), int(round(dx))), axis=(0, 1))
+        sy, sx = int(round(dy)), int(round(dx))
+        idx_b = np.roll(idx_b, (sy, sx), axis=(0, 1))
+        valid_b = np.roll(valid_b, (sy, sx), axis=(0, 1))
+        # np.roll wraps: the rows and columns it carried across the opposite
+        # edge are not ground at this position, so they are unobserved.
+        if sy > 0:
+            valid_b[:sy, :] = False
+        elif sy < 0:
+            valid_b[sy:, :] = False
+        if sx > 0:
+            valid_b[:, :sx] = False
+        elif sx < 0:
+            valid_b[:, sx:] = False
 
-    valid = np.isfinite(idx_a) & np.isfinite(idx_b)
+    valid = valid_a & valid_b & np.isfinite(idx_a) & np.isfinite(idx_b)
     return {
         "diff": (idx_b - idx_a).astype("float32"),
         "valid": valid,

@@ -385,8 +385,10 @@ suite passes on both.
 
 ### Access
 
-With no `GEO_PASSWORD` set, the server answers **this machine only**; any other
-client gets 403. To serve other machines, set `GEO_PASSWORD` and bind wider
+With no `GEO_PASSWORD` set, the server answers **this machine only**, and only
+under the names `localhost`, `127.0.0.1` or `[::1]`; any other client or host
+name gets 403, which also stops DNS-rebinding pages. `POST` bodies must be
+`application/json`, so another site cannot submit runs through the browser. To serve other machines, set `GEO_PASSWORD` and bind wider
 (`--host 0.0.0.0`): every request, pages included, then needs HTTP Basic auth
 (any username). Set it behind a reverse proxy too — the proxy connects from
 loopback and would otherwise pass everyone through. Use HTTPS there, since
