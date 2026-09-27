@@ -35,6 +35,7 @@ import locate
 import pipeline
 import raster
 import semantic
+import series
 import series_run
 from sources import drone as dronesrc
 from sources import s1 as s1src
@@ -62,6 +63,13 @@ def _real_date(v: str | None) -> str | None:
 def _ordered_window(start: str, end: str, what: str) -> None:
     if end < start:  # ISO dates order as strings
         raise ValueError(f"{what}: end {end} is before start {start}")
+
+
+def _splittable(start: str, end: str, steps: int) -> None:
+    """Refuse a series the run itself would refuse: an end on or before the
+    start, or fewer days than steps. Same check as the run, so they cannot
+    drift apart."""
+    series.windows(start, end, steps)  # raises ValueError
 
 
 def _is_loopback(host: str) -> bool:
@@ -288,7 +296,7 @@ class DetectRequest(BaseModel):
                 "supply either start+end+steps (series) or window_a+window_b (pair)"
             )
         if has_series:
-            _ordered_window(self.start, self.end, "series")
+            _splittable(self.start, self.end, self.steps)
         return self
 
     @property
@@ -638,7 +646,7 @@ class SmartRequest(BaseModel):
 
     @model_validator(mode="after")
     def _ordered(self):
-        _ordered_window(self.start, self.end, "series")
+        _splittable(self.start, self.end, self.steps)
         return self
 
 

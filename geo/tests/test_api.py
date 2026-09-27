@@ -193,9 +193,13 @@ def test_state_changing_requests_need_a_json_content_type(local):
 
 
 def test_impossible_dates_rejected_before_queueing(local):
-    for bad in ({"start": "2023-02-30"}, {"start": "2024-06-01", "end": "2024-01-01"}):
+    for bad in ({"start": "2023-02-30"}, {"start": "2024-06-01", "end": "2024-01-01"},
+                {"start": "2024-01-01", "end": "2024-01-01"},  # empty range
+                {"start": "2024-01-01", "end": "2024-01-03", "steps": 4}):  # 2 days, 4 windows
         assert local.post("/api/detect", json={**SMALL_RUN, **bad}).status_code == 422, bad
     pair = {"bbox": SMALL_RUN["bbox"], "window_a": ["2023-03-01", "2023-01-01"],
             "window_b": ["2024-01-01", "2024-03-01"]}
     assert local.post("/api/detect", json=pair).status_code == 422
     assert local.post("/api/smart", json={"query": "x", "start": "2023-13-01"}).status_code == 422
+    same_day = {"query": "x", "start": "2024-01-01", "end": "2024-01-01"}
+    assert local.post("/api/smart", json=same_day).status_code == 422
